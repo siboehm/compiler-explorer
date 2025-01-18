@@ -24,12 +24,14 @@
 
 import path from 'path';
 
+import semverParser from 'semver';
 import _ from 'underscore';
 
 import type {PreliminaryCompilerInfo} from '../../types/compiler.interfaces.js';
 import type {ParseFiltersAndOutputOptions} from '../../types/features/filters.interfaces.js';
 import {unwrap} from '../assert.js';
 import {BaseCompiler} from '../base-compiler.js';
+import {CompilationEnvironment} from '../compilation-env.js';
 import {CrystalAsmParser} from '../parsers/asm-parser-crystal.js';
 
 import {CrystalParser} from './argument-parsers.js';
@@ -41,7 +43,7 @@ export class CrystalCompiler extends BaseCompiler {
 
     ccPath: string;
 
-    constructor(compiler: PreliminaryCompilerInfo, env) {
+    constructor(compiler: PreliminaryCompilerInfo, env: CompilationEnvironment) {
         super(compiler, env);
         this.asm = new CrystalAsmParser();
         this.compiler.supportsIrView = true;
@@ -75,8 +77,20 @@ export class CrystalCompiler extends BaseCompiler {
         return options;
     }
 
-    override getOutputFilename(dirPath: string) {
-        return path.join(dirPath, `${path.basename(this.compileFilename, this.lang.extensions[0])}.s`);
+    override getIrOutputFilename(inputFilename: string, filters: ParseFiltersAndOutputOptions): string {
+        if (this.usesNewEmitFilenames()) {
+            return this.getOutputFilename(path.dirname(inputFilename), this.outputFilebase).replace('.s', '.ll');
+        } else {
+            return super.getIrOutputFilename(inputFilename, filters);
+        }
+    }
+
+    override getOutputFilename(dirPath: string, outputFilebase: string) {
+        if (this.usesNewEmitFilenames()) {
+            return path.join(dirPath, `${outputFilebase}.s`);
+        } else {
+            return path.join(dirPath, `${path.basename(this.compileFilename, this.lang.extensions[0])}.s`);
+        }
     }
 
     override getExecutableFilename(dirPath: string, outputFilebase: string) {
@@ -87,7 +101,13 @@ export class CrystalCompiler extends BaseCompiler {
         return this.getExecutableFilename(path.dirname(defaultOutputFilename), this.outputFilebase);
     }
 
-    override getArgumentParser() {
+    override getArgumentParserClass() {
         return CrystalParser;
+    }
+
+    private usesNewEmitFilenames(): boolean {
+        const versionRegex = /Crystal (\d+\.\d+\.\d+)/;
+        const versionMatch = versionRegex.exec(this.compiler.version);
+        return versionMatch ? semverParser.compare(versionMatch[1], '1.9.0', true) >= 0 : false;
     }
 }
